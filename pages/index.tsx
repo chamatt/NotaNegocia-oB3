@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { read, utils } from "xlsx";
 import { flow, groupBy, mapValues } from "lodash";
 import {
@@ -15,6 +15,11 @@ import {
   AccordionItem,
   Accordion,
   useToast,
+  Input,
+  NumberInput,
+  NumberInputField,
+  InputLeftAddon,
+  InputGroup,
 } from "@chakra-ui/react";
 import Dropzone from "../components/Dropzone";
 import {
@@ -94,7 +99,7 @@ const getAveragePurchagePrice = (transactions: Transaction[]) => {
     (transaction) => transaction.Type === TransactionType.Buy
   );
   const sumPrice = purchases.reduce(
-    (acc, transaction) => acc + transaction.Price,
+    (acc, transaction) => acc + transaction.Value,
     0
   );
   const sumQuantity = purchases.reduce(
@@ -368,15 +373,31 @@ const TransactionList = ({ stock }: { stock: Stock }) => {
           </AccordionButton>
           <AccordionPanel p="0" m="0">
             {transactions.map((transaction) => (
-              <>
+              <React.Fragment
+                key={`transaction-${transaction.Date}-${transaction.Quantity}-${transaction.Price}`}
+              >
                 <TransactionRow transaction={transaction} />
                 <Divider />
-              </>
+              </React.Fragment>
             ))}
           </AccordionPanel>
         </AccordionItem>
       </Accordion>
     </Box>
+  );
+};
+
+const MoneyInput = ({ value, setValue }) => {
+  return (
+    <InputGroup>
+      <InputLeftAddon children="R$" />
+      <NumberInput
+        onChange={(valueString) => setValue(valueString)}
+        value={value}
+      >
+        <NumberInputField />
+      </NumberInput>
+    </InputGroup>
   );
 };
 
@@ -409,6 +430,10 @@ const StockItem = ({ stock }: { stock: Stock }) => {
   };
 
   const bgColor = useColorModeValue("gray.100", "gray.700");
+
+  const [startValue, setStartValue] = useState<number>(0);
+  const endValue = parseFloat(stock.TotalPrice) + +startValue;
+  const endValueFormatted = currencyFormatter(endValue.toString());
 
   return (
     <Flex bg={bgColor} width="full" p="8" direction="column">
@@ -445,6 +470,18 @@ const StockItem = ({ stock }: { stock: Stock }) => {
         </Flex>
       </Flex>
       <Discriminator stock={stock} />
+
+      <Flex justifyContent="space-between" alignItems="center" w="full">
+        <Flex alignItems="center" flexBasis="50%">
+          <MoneyInput value={startValue} setValue={setStartValue} />
+          <CopyToClipboard text={startValue.toString()} />
+        </Flex>
+        <Flex flexBasis="50%" justifyContent="end">
+          {endValueFormatted}
+          <CopyToClipboard text={endValue.toString()} />
+        </Flex>
+      </Flex>
+
       <TransactionList stock={stock} />
     </Flex>
   );
@@ -481,13 +518,6 @@ const DownloadXLSXTutorial = () => {
     </Box>
   );
 };
-// import extrato from "../images/extrato.png";
-// import negociacao from "../images/negociacao.png";
-// import filtrar from "../images/filtrar.png";
-// import filtrando from "../images/filtrando.png";
-// import downloadExtrato from "../images/downloadExtrato.png";
-// import excelDownload from "../images/excelDownload.png";
-// import downloadedFile from "../images/downloadedFile.png";
 
 export default function Home() {
   const [file, setFile] = useState<File>(null);
@@ -546,10 +576,10 @@ export default function Home() {
         <Flex w="full" maxWidth="xl" direction="column">
           {stocks.map((stock) => {
             return (
-              <>
+              <React.Fragment key={`stock-${stock.Ticker}`}>
                 <StockItem stock={stock} />
                 <Box mb="16" />
-              </>
+              </React.Fragment>
             );
           })}
         </Flex>
