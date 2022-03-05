@@ -1,6 +1,4 @@
-import Head from "next/head";
 import { useEffect, useMemo, useState } from "react";
-import styles from "../styles/Home.module.css";
 import { read, utils } from "xlsx";
 import { flow, groupBy, mapValues } from "lodash";
 import {
@@ -9,16 +7,28 @@ import {
   Divider,
   Flex,
   IconButton,
-  Table,
-  Tbody,
-  Td,
+  Link,
   Text,
-  Thead,
-  Tr,
   useColorModeValue,
+  AccordionPanel,
+  AccordionButton,
+  AccordionItem,
+  Accordion,
+  useToast,
 } from "@chakra-ui/react";
 import Dropzone from "../components/Dropzone";
-import { AiOutlineCopy } from "react-icons/ai";
+import {
+  AiOutlineCopy,
+  AiOutlineDown,
+  AiOutlineQuestionCircle,
+} from "react-icons/ai";
+import { useRegisteredCVMCompanies } from "../context/registeredCVMCompanies";
+import Navbar from "../components/Navbar";
+import Image from "next/image";
+import NextLink from "next/link";
+import {} from "@chakra-ui/react";
+
+import extrato from "../images/extrato.png";
 
 // Código de Negociação: "BOVA11"
 // Data do Negócio: "29/12/2021"
@@ -102,11 +112,11 @@ const getTotalStockValue = (transactions: Transaction[]) => {
   );
 
   const totalPurchasePrice = purchases.reduce(
-    (acc, transaction) => acc + transaction.Price,
+    (acc, transaction) => acc + transaction.Value,
     0
   );
   const totalSalePrice = sales.reduce(
-    (acc, transaction) => acc + transaction.Price,
+    (acc, transaction) => acc + transaction.Value,
     0
   );
 
@@ -171,8 +181,6 @@ const getAllStocks = (transactions: Transaction[]): Stock[] => {
 
 const processFileUpload = async (file: File): Promise<OriginalData | null> => {
   const data = await file.arrayBuffer();
-  console.log(data);
-  /* data is an ArrayBuffer */
   const workbook = read(data);
   console.log(workbook);
   try {
@@ -189,12 +197,55 @@ const currencyFormatter = (value: string) => {
   }).format(parseFloat(value));
 };
 
+const copyToClipboard1 = (text: string) => {
+  navigator.clipboard.writeText(text);
+};
+const copyToClipboard2 = (text: string) => {
+  const textArea = document.createElement("textarea");
+  textArea.value = text;
+  document.body.appendChild(textArea);
+  textArea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textArea);
+};
+
+const copyToClipboard = (text: string) => {
+  try {
+    copyToClipboard1(text);
+  } catch (err) {
+    try {
+      copyToClipboard2(text);
+    } catch (err) {
+      console.log(err);
+    }
+  }
+};
+
 const CopyToClipboard = ({ text }: { text: string }) => {
+  const toast = useToast();
   return (
     <IconButton
+      bgColor="transparent"
       size="sm"
       aria-label="Copiar Descriminação"
-      onClick={() => navigator.clipboard.writeText(text)}
+      onClick={() => {
+        try {
+          copyToClipboard(text);
+          toast({
+            title: "Copiado para a área de transferência",
+            status: "success",
+            duration: 1000,
+            isClosable: true,
+          });
+        } catch (err) {
+          toast({
+            title: "Erro ao copiar",
+            status: "error",
+            duration: 1000,
+            isClosable: true,
+          });
+        }
+      }}
     >
       <AiOutlineCopy />
     </IconButton>
@@ -202,7 +253,16 @@ const CopyToClipboard = ({ text }: { text: string }) => {
 };
 
 const Discriminator = ({ stock }: { stock: Stock }) => {
-  const descriminatoryText = `${stock.Ticker} / ${stock.Quantity} Unidades / Custo Médio ${stock.AveragePurchagePrice} / Corretora ${stock.Instituition}`;
+  const { getCNPJ } = useRegisteredCVMCompanies();
+
+  const cnpj = useMemo(() => getCNPJ(stock.Instituition), [stock.Instituition]);
+  const cnpjTextPart = cnpj ? ` / CNPJ: ${cnpj}` : "";
+
+  const descriminatoryText = `${stock.Ticker} / ${
+    stock.Quantity
+  } Unidades / Preço Médio ${currencyFormatter(
+    stock.AveragePurchagePrice
+  )} / Corretora ${stock.Instituition}${cnpjTextPart}`;
 
   return (
     <Box>
@@ -216,126 +276,153 @@ const Discriminator = ({ stock }: { stock: Stock }) => {
 };
 
 const TransactionRow = ({ transaction }: { transaction: Transaction }) => {
-  const { Ticker, Date, Institution, Market, Maturity, Price, Quantity, Type } =
+  const { Ticker, Date, Institution, Price, Value, Quantity, Type } =
     transaction;
   const value = Price * Quantity;
 
-  const buyColor = useColorModeValue("green.200", "green.800");
-  const sellColor = useColorModeValue("red.200", "red.300");
+  const bgColor = useColorModeValue("gray.100", "gray.700");
 
-  const color = Type === TransactionType.Buy ? buyColor : sellColor;
+  const buyColor = useColorModeValue("green.200", "green.500");
+  const sellColor = useColorModeValue("red.200", "red.500");
+
+  const badgeColor = Type === TransactionType.Buy ? buyColor : sellColor;
   const type = Type === TransactionType.Buy ? "Compra" : "Venda";
 
   return (
     <Flex
       alignItems="center"
-      bg="gray.200"
+      bg={bgColor}
       px="4"
       py="2"
       justify="space-between"
     >
-      <Flex flex="1">
-        <Text>{transaction.Date}</Text>
-      </Flex>
-      <Badge
-        w="16"
-        textAlign="center"
-        bg={Type === TransactionType.Buy ? buyColor : sellColor}
-        fontSize="xs"
-        fontWeight="semibold"
-      >
-        {type}
-      </Badge>
+      <Flex direction="column" flex="1">
+        <Flex mb="2" alignItems="center" justify="space-between">
+          <Flex w="100%">
+            <Badge
+              w="16"
+              textAlign="center"
+              bg={badgeColor}
+              size="xs"
+              lineHeight="taller"
+            >
+              {type}
+            </Badge>
+            <Box className="ellipsis" w="90%">
+              <Text
+                as="span"
+                fontSize="sm"
+                ml="2"
+                overflow="hidden"
+                textOverflow="ellipsis"
+                whiteSpace="nowrap"
+                maxW="60%"
+                w="-webkit-max-content"
+              >
+                {Ticker} - {Institution}
+              </Text>
+            </Box>
+          </Flex>
+          <Flex>
+            <Text fontSize="sm" ml="2" fontWeight="bold">
+              {currencyFormatter(Value.toString())}
+            </Text>
+          </Flex>
+        </Flex>
 
-      {/* <Text>{Ticker}</Text>
-      <Text>{Date}</Text>
-      <Text>{Institution}</Text>
-      <Text>{Market}</Text>
-      <Text>{Maturity}</Text>
-      <Text>{currencyFormatter(Price.toString())}</Text>
-      <Text>{Quantity}</Text>
-      <Text>{Type}</Text>
-      <Text>{currencyFormatter(value.toString())}</Text> */}
+        <Flex flex="1" justify="space-between" alignItems="center">
+          <Box>
+            <Text fontSize="xs">{Date}</Text>
+          </Box>
+          <Flex>
+            <Text fontSize="xs" textTransform="uppercase">
+              {currencyFormatter(Price.toString())}
+            </Text>
+            <Text fontSize="xs" px="0.5">
+              ×
+            </Text>
+            <Text fontSize="xs" textTransform="uppercase">
+              {Quantity}
+            </Text>
+          </Flex>
+        </Flex>
+      </Flex>
     </Flex>
   );
 };
 
 const TransactionList = ({ stock }: { stock: Stock }) => {
   const transactions = stock.Transactions;
-  const totalQuantity = stock.Quantity;
-  const totalPrice = stock.TotalPrice;
-  const averagePurchagePrice = stock.AveragePurchagePrice;
 
   return (
-    <Box>
-      <Flex alignItems="center">
-        <Text fontWeight="bold">Transações </Text>
-        <IconButton size="sm" aria-label="Copiar Descriminação">
-          <AiOutlineCopy />
-        </IconButton>
-      </Flex>
-
-      {transactions.map((transaction) => (
-        <>
-          <TransactionRow transaction={transaction} />
-          <Divider />
-        </>
-      ))}
-
-      {/* <Table>
-        <Thead>
-          <Tr>
-            <Td>Data</Td>
-            <Td>Tipo</Td>
-            <Td>Preço</Td>
-            <Td>Quantidade</Td>
-            <Td>Valor</Td>
-          </Tr>
-        </Thead>
-        <Tbody>
-          {transactions.map((transaction) => (
-            <Tr key={transaction.Date}>
-              <Td>{transaction.Date}</Td>
-              <Td>{transaction.Type}</Td>
-              <Td>{currencyFormatter(transaction.Price.toString())}</Td>
-              <Td>{transaction.Quantity}</Td>
-              <Td>{currencyFormatter(transaction.Value.toString())}</Td>
-            </Tr>
-          ))}
-        </Tbody>
-      </Table> */}
-      <Box>
-        <Flex alignItems="center">
-          <Text fontWeight="bold">Resumo </Text>
-          <IconButton size="sm" aria-label="Copiar Descriminação">
-            <AiOutlineCopy />
-          </IconButton>
-        </Flex>
-        <Text>
-          Quantidade Total: {totalQuantity} Unidades
-          <br />
-          Valor Total: {currencyFormatter(totalPrice.toString())}
-          <br />
-          Custo Médio: {currencyFormatter(averagePurchagePrice.toString())}
-        </Text>
-      </Box>
+    <Box mt="4">
+      <Accordion allowMultiple allowToggle>
+        <AccordionItem>
+          <AccordionButton>
+            <Flex alignItems="center">
+              <Box mr="2">
+                <AiOutlineDown />
+              </Box>
+              <Text fontWeight="bold">Transações </Text>
+            </Flex>
+          </AccordionButton>
+          <AccordionPanel p="0" m="0">
+            {transactions.map((transaction) => (
+              <>
+                <TransactionRow transaction={transaction} />
+                <Divider />
+              </>
+            ))}
+          </AccordionPanel>
+        </AccordionItem>
+      </Accordion>
     </Box>
   );
 };
 
 const StockItem = ({ stock }: { stock: Stock }) => {
+  const { getCNPJ } = useRegisteredCVMCompanies();
+
+  const cnpj = useMemo(() => getCNPJ(stock.Instituition), [stock.Instituition]);
+
+  const renderCNPJ = () => {
+    if (cnpj) {
+      return (
+        <Text fontSize="sm" fontWeight="bold">
+          {cnpj} <CopyToClipboard text={cnpj} />
+        </Text>
+      );
+    } else {
+      const url = new URL("http://www.google.com/search");
+      url.searchParams.append("q", `${stock.Instituition} cnpj`);
+      return (
+        <Link
+          fontSize="sm"
+          color="blue.500"
+          target="_blank"
+          href={url.toString()}
+        >
+          Pesquisar CNPJ
+        </Link>
+      );
+    }
+  };
+
   const bgColor = useColorModeValue("gray.100", "gray.700");
 
   return (
     <Flex bg={bgColor} width="full" p="8" direction="column">
-      <Flex flex="1" mb="2">
-        <Flex direction="column" flex="1" alignContent="center">
+      <Flex flex="1" mb="2" flexWrap="wrap">
+        <Flex direction="column" alignContent="center" flex="1">
           <Box>
             <Text fontSize="lg" fontWeight="bold" d="block">
               {stock.Ticker}
             </Text>
           </Box>
-          <Text>{stock.Instituition}</Text>
+          <Box className="ellipsis">
+            <Text as="span">{stock.Instituition}</Text>
+          </Box>
+          {renderCNPJ()}
         </Flex>
         <Flex justify="end">
           <Box>
@@ -344,9 +431,15 @@ const StockItem = ({ stock }: { stock: Stock }) => {
             </Text>
             <Text align="right">
               <Text as="span" fontWeight="semibold">
-                Quantidade:
+                Qtd:
               </Text>{" "}
               {stock.Quantity}
+            </Text>
+            <Text align="right">
+              <Text as="span" fontWeight="semibold">
+                P.M.:
+              </Text>{" "}
+              {currencyFormatter(stock.AveragePurchagePrice)}
             </Text>
           </Box>
         </Flex>
@@ -356,6 +449,46 @@ const StockItem = ({ stock }: { stock: Stock }) => {
     </Flex>
   );
 };
+
+const DownloadXLSXTutorial = () => {
+  const ArrowRight = <Text>→</Text>;
+
+  return (
+    <Box mt="4">
+      <Accordion allowMultiple allowToggle>
+        <AccordionItem>
+          <AccordionButton>
+            <Flex alignItems="center">
+              <Box mr="2">
+                <AiOutlineDown />
+              </Box>
+            </Flex>
+          </AccordionButton>
+          <AccordionPanel p="0" m="0">
+            <Box>
+              <Text fontSize="sm">
+                Para baixar a nota de movimentação de 2021, acesse o{" "}
+                <a>Portal do Investidor</a> e faço o login. Caso não possua
+                conta, cria uma. Após isso vá até <Text>Extratos</Text>{" "}
+                <Image src={extrato} />
+                {ArrowRight} Aba <Text>Negociação</Text> {ArrowRight}{" "}
+                <Text>'</Text> {ArrowRight} <Text>Movimentação de 2021</Text>
+              </Text>
+            </Box>
+          </AccordionPanel>
+        </AccordionItem>
+      </Accordion>
+    </Box>
+  );
+};
+// import extrato from "../images/extrato.png";
+// import negociacao from "../images/negociacao.png";
+// import filtrar from "../images/filtrar.png";
+// import filtrando from "../images/filtrando.png";
+// import downloadExtrato from "../images/downloadExtrato.png";
+// import excelDownload from "../images/excelDownload.png";
+// import downloadedFile from "../images/downloadedFile.png";
+
 export default function Home() {
   const [file, setFile] = useState<File>(null);
   const [data, setData] = useState<OriginalData>();
@@ -375,33 +508,52 @@ export default function Home() {
   }, [file]);
 
   return (
-    <Box m="auto" w="full" maxW="xl">
-      <Box my="16">
-        <Text fontSize="2xl" fontWeight="bold" mb="4">
-          Faça upload na nota de negociação da B3
-        </Text>
-        <Dropzone
-          acceptedTypes=".xlsx"
-          file={file}
-          onFileAccepted={(file) => {
-            setFile(file);
-          }}
-          textHints={{
-            active: "Arraste a nota de negociação da B3 aqui",
-            inactive: "Solte a nota de negociação da B3 aqui",
-          }}
-        />
-      </Box>
-      <Flex w="full" maxWidth="xl" direction="column">
-        {stocks.map((stock) => {
-          return (
-            <>
-              <StockItem stock={stock} />
-              <Box mb="16" />
-            </>
-          );
-        })}
+    <Flex flex="1" direction="column" alignItems="center" w="full">
+      <Navbar />
+
+      <Flex mt="8" justify="start" w="100%" maxW="xl" padding={["4", 0, 0, 0]}>
+        <NextLink href="/faq">
+          <Link>
+            <Text align="left" display="flex" fontWeight="bold">
+              <Flex alignItems="center">
+                Como baixar a nota de negociação de 2021?
+                <Box ml={2}>
+                  <AiOutlineQuestionCircle />
+                </Box>
+              </Flex>
+            </Text>
+          </Link>
+        </NextLink>
       </Flex>
-    </Box>
+
+      <Flex w="100%" maxW="xl" direction="column" padding={["4", 0, 0, 0]}>
+        <Box mb="16" mt="8">
+          <Text fontSize="2xl" fontWeight="bold" mb="4">
+            Faça upload da nota de negociação da B3
+          </Text>
+          <Dropzone
+            acceptedTypes=".xlsx"
+            file={file}
+            onFileAccepted={(file) => {
+              setFile(file);
+            }}
+            textHints={{
+              active: "Arraste a nota de negociação da B3 aqui",
+              inactive: "Solte a nota de negociação da B3 aqui",
+            }}
+          />
+        </Box>
+        <Flex w="full" maxWidth="xl" direction="column">
+          {stocks.map((stock) => {
+            return (
+              <>
+                <StockItem stock={stock} />
+                <Box mb="16" />
+              </>
+            );
+          })}
+        </Flex>
+      </Flex>
+    </Flex>
   );
 }
