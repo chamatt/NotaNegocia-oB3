@@ -471,12 +471,15 @@ const StockItem = ({ stock }: { stock: Stock }) => {
       </Flex>
       <Discriminator stock={stock} />
 
+      <Text fontWeight="bold" mt="4" mb="2">
+        Valores no início e fim do ano
+      </Text>
       <Flex justifyContent="space-between" alignItems="center" w="full">
         <Flex alignItems="center" flexBasis="50%">
           <MoneyInput value={startValue} setValue={setStartValue} />
           <CopyToClipboard text={startValue.toString()} />
         </Flex>
-        <Flex flexBasis="50%" justifyContent="end">
+        <Flex flexBasis="50%" justifyContent="end" alignItems="center">
           {endValueFormatted}
           <CopyToClipboard text={endValue.toString()} />
         </Flex>
@@ -484,38 +487,6 @@ const StockItem = ({ stock }: { stock: Stock }) => {
 
       <TransactionList stock={stock} />
     </Flex>
-  );
-};
-
-const DownloadXLSXTutorial = () => {
-  const ArrowRight = <Text>→</Text>;
-
-  return (
-    <Box mt="4">
-      <Accordion allowMultiple allowToggle>
-        <AccordionItem>
-          <AccordionButton>
-            <Flex alignItems="center">
-              <Box mr="2">
-                <AiOutlineDown />
-              </Box>
-            </Flex>
-          </AccordionButton>
-          <AccordionPanel p="0" m="0">
-            <Box>
-              <Text fontSize="sm">
-                Para baixar a nota de movimentação de 2021, acesse o{" "}
-                <a>Portal do Investidor</a> e faço o login. Caso não possua
-                conta, cria uma. Após isso vá até <Text>Extratos</Text>{" "}
-                <Image src={extrato} />
-                {ArrowRight} Aba <Text>Negociação</Text> {ArrowRight}{" "}
-                <Text>'</Text> {ArrowRight} <Text>Movimentação de 2021</Text>
-              </Text>
-            </Box>
-          </AccordionPanel>
-        </AccordionItem>
-      </Accordion>
-    </Box>
   );
 };
 
