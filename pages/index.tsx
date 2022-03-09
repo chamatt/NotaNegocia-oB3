@@ -639,7 +639,12 @@ const StockItem = ({
               <Text as="span" fontWeight="bold">
                 {previousYearValueFormatted}
               </Text>
-              <CopyToClipboard text={previousYear?.price?.toString()} />
+              <CopyToClipboard
+                text={getTotalValue(
+                  previousYearDataMap?.[stock.Ticker]?.price,
+                  previousYearDataMap?.[stock.Ticker]?.quantity
+                ).toString()}
+              />
             </Box>
           </Flex>
           <Flex flexBasis="50%" alignItems="center" direction="column">
