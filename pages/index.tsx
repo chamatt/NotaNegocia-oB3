@@ -20,6 +20,9 @@ import {
   NumberInputField,
   InputLeftAddon,
   InputGroup,
+  Button,
+  Switch,
+  toast,
 } from "@chakra-ui/react";
 import Dropzone from "../components/Dropzone";
 import {
@@ -32,8 +35,13 @@ import Navbar from "../components/Navbar";
 import Image from "next/image";
 import NextLink from "next/link";
 import {} from "@chakra-ui/react";
+import { useDebounce } from "react-use";
+import memoize from "micro-memoize";
+import { DateTime } from "luxon";
 
 import extrato from "../images/extrato.png";
+
+type AtLeast<T, K extends keyof T> = Partial<T> & Pick<T, K>;
 
 // Código de Negociação: "BOVA11"
 // Data do Negócio: "29/12/2021"
@@ -94,21 +102,30 @@ interface Stock {
   TotalPrice: string;
 }
 
-const getAveragePurchagePrice = (transactions: Transaction[]) => {
-  const purchases = transactions.filter(
-    (transaction) => transaction.Type === TransactionType.Buy
-  );
-  const sumPrice = purchases.reduce(
-    (acc, transaction) => acc + transaction.Value,
-    0
-  );
-  const sumQuantity = purchases.reduce(
-    (acc, transaction) => acc + transaction.Quantity,
-    0
-  );
-  return (sumPrice / sumQuantity).toFixed(2);
-};
-const getTotalStockValue = (transactions: Transaction[]) => {
+const getAveragePurchagePrice = memoize(
+  (
+    transactions: AtLeast<
+      Transaction,
+      | TransactionProperties.Ticker
+      | TransactionProperties.Value
+      | TransactionProperties.Quantity
+    >[]
+  ) => {
+    const purchases = transactions.filter(
+      (transaction) => transaction.Type === TransactionType.Buy
+    );
+    const sumPrice = purchases.reduce(
+      (acc, transaction) => acc + transaction.Value,
+      0
+    );
+    const sumQuantity = purchases.reduce(
+      (acc, transaction) => acc + transaction.Quantity,
+      0
+    );
+    return (sumPrice / sumQuantity).toFixed(2);
+  }
+);
+const getTotalStockValue = memoize((transactions: Transaction[]) => {
   const purchases = transactions.filter(
     (transaction) => transaction.Type === TransactionType.Buy
   );
@@ -120,30 +137,67 @@ const getTotalStockValue = (transactions: Transaction[]) => {
     (acc, transaction) => acc + transaction.Value,
     0
   );
+  console.log("purchases", purchases, totalPurchasePrice);
   const totalSalePrice = sales.reduce(
     (acc, transaction) => acc + transaction.Value,
     0
   );
 
-  return (totalPurchasePrice - totalSalePrice).toFixed(2);
-};
+  // console.log({
+  //   totalPurchasePrice,
+  //   totalSalePrice,
+  // });
 
-const createStock = (ticker: string, transactions: Transaction[]): Stock => {
-  const totalQuantity = transactions.reduce(
-    (acc, transaction) => acc + transaction.Quantity,
-    0
-  );
-  const averagePurchagePrice = getAveragePurchagePrice(transactions);
-  const totalPrice = getTotalStockValue(transactions);
-  return {
-    Ticker: ticker,
-    Instituition: transactions[0].Institution,
-    Transactions: transactions,
-    Quantity: totalQuantity,
-    AveragePurchagePrice: averagePurchagePrice,
-    TotalPrice: totalPrice,
-  };
-};
+  return (totalPurchasePrice - totalSalePrice).toFixed(2);
+});
+
+const createStock = memoize(
+  (
+    ticker: string,
+    transactions: Transaction[],
+    previousYearData: PreviousYearData
+  ): Stock => {
+    const totalQuantity = transactions.reduce(
+      (acc, transaction) => acc + transaction.Quantity,
+      0
+    );
+
+    const transactionFromPreviousData =
+      previousYearData &&
+      ({
+        Ticker: previousYearData.ticker,
+        Value: (previousYearData.price || 0) * (previousYearData.quantity || 0),
+        Quantity: previousYearData.quantity || 0,
+        Type: TransactionType.Buy,
+      } as Transaction);
+
+    console.log("buceta", previousYearData, transactionFromPreviousData);
+
+    const allTransactions = [
+      ...transactions,
+      transactionFromPreviousData,
+    ].filter(Boolean);
+
+    let averagePurchagePrice = getAveragePurchagePrice(allTransactions);
+    let totalPrice = getTotalStockValue(
+      allTransactions.filter((transaction) => {
+        return transaction.Quantity > 0;
+      })
+    );
+
+    return {
+      Ticker: ticker,
+      Instituition: transactions[0].Institution,
+      Transactions: transactions,
+      Quantity: totalQuantity + (transactionFromPreviousData?.Quantity || 0),
+      AveragePurchagePrice: averagePurchagePrice,
+      TotalPrice: totalPrice,
+      // AveragePurchagePrice: "0",
+      // TotalPrice: "0",
+      // PreviousYearData: previousYearData,
+    };
+  }
+);
 
 const MapOriginalFileHeaderKeysToProperties = {
   [OriginalFileHeaderKeys.Ticker]: TransactionProperties.Ticker,
@@ -174,12 +228,18 @@ const transformKeys = (originalData: OriginalData): Transaction[] => {
 const processTransactions = (originalData: OriginalData): Transaction[] =>
   flow(transformKeys)(originalData);
 
-const getAllStocks = (transactions: Transaction[]): Stock[] => {
+const getAllStocks = ({
+  transactions,
+  previousYearDataMap,
+}: {
+  transactions: Transaction[];
+  previousYearDataMap: Record<string, PreviousYearData>;
+}): Stock[] => {
   const groupedByTicker = groupBy(transactions, TransactionProperties.Ticker);
-  console.log("groupedByTicker", groupedByTicker);
+  // console.log("groupedByTicker", groupedByTicker);
   const stocks = mapValues(groupedByTicker, (value, key) => {
-    console.log("key", key, "value", value);
-    return createStock(key, value);
+    // console.log("key", key, "value", value);
+    return createStock(key, value, previousYearDataMap?.[key]);
   });
   return Object.values(stocks);
 };
@@ -187,7 +247,7 @@ const getAllStocks = (transactions: Transaction[]): Stock[] => {
 const processFileUpload = async (file: File): Promise<OriginalData | null> => {
   const data = await file.arrayBuffer();
   const workbook = read(data);
-  console.log(workbook);
+  // console.log(workbook);
   try {
     return utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
   } catch (err) {
@@ -387,13 +447,14 @@ const TransactionList = ({ stock }: { stock: Stock }) => {
   );
 };
 
-const MoneyInput = ({ value, setValue }) => {
+const MoneyInput = ({ value, setValue, ...rest }) => {
   return (
     <InputGroup>
       <InputLeftAddon children="R$" />
       <NumberInput
         onChange={(valueString) => setValue(valueString)}
         value={value}
+        {...rest}
       >
         <NumberInputField />
       </NumberInput>
@@ -401,7 +462,15 @@ const MoneyInput = ({ value, setValue }) => {
   );
 };
 
-const StockItem = ({ stock }: { stock: Stock }) => {
+const StockItem = ({
+  stock,
+  previousYearDataMap,
+  updatePreviousYearDataMap,
+}: {
+  stock: Stock;
+  previousYearDataMap: PreviousYearDataMap;
+  updatePreviousYearDataMap: UpdatePreviousYearDataMap;
+}) => {
   const { getCNPJ } = useRegisteredCVMCompanies();
 
   const cnpj = useMemo(() => getCNPJ(stock.Instituition), [stock.Instituition]);
@@ -431,9 +500,67 @@ const StockItem = ({ stock }: { stock: Stock }) => {
 
   const bgColor = useColorModeValue("gray.100", "gray.700");
 
-  const [startValue, setStartValue] = useState<number>(0);
-  const endValue = parseFloat(stock.TotalPrice) + +startValue;
-  const endValueFormatted = currencyFormatter(endValue.toString());
+  const [previousYear, setPreviousYear] = useState<{
+    price: string;
+    quantity: string;
+  }>({
+    price: "",
+    quantity: "",
+  });
+  // const endValue = parseFloat(stock.TotalPrice) + (+previousYear) |;
+
+  const getTotalValue = (
+    price?: string | number,
+    quantity?: string | number
+  ) => {
+    if (!price || !quantity) {
+      return 0;
+    }
+    const priceValue = parseFloat(`${price}`);
+    const quantityValue = parseFloat(`${quantity}`);
+    return priceValue * quantityValue;
+  };
+  const previousYearValueFormatted = currencyFormatter(
+    getTotalValue(
+      previousYearDataMap?.[stock.Ticker]?.price,
+      previousYearDataMap?.[stock.Ticker]?.quantity
+    ).toString()
+  );
+  const endValueFormatted = currencyFormatter(stock.TotalPrice.toString());
+
+  const toast = useToast();
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const value = {
+      ticker: stock.Ticker,
+      price: parseFloat(previousYear.price) || 0,
+      quantity: parseFloat(previousYear.quantity) || 0,
+    };
+    // console.log("xixixi", value);
+    updatePreviousYearDataMap(value);
+    toast({
+      title: "Ativo recalculado com sucesso!",
+      status: "success",
+      duration: 1000,
+      isClosable: true,
+    });
+  };
+
+  const [hadInPreviousYear, setHadInPreviousYear] = useState(false);
+  const toggleHadInPreviousYear = () => {
+    setHadInPreviousYear(!hadInPreviousYear);
+  };
+
+  useEffect(() => {
+    if (previousYearDataMap?.[stock.Ticker] && !hadInPreviousYear) {
+      const value = {
+        ticker: stock.Ticker,
+        price: 0,
+        quantity: 0,
+      };
+      updatePreviousYearDataMap(value);
+    }
+  }, [previousYearDataMap?.[stock.Ticker], hadInPreviousYear]);
 
   return (
     <Flex bg={bgColor} width="full" p="8" direction="column">
@@ -469,36 +596,124 @@ const StockItem = ({ stock }: { stock: Stock }) => {
           </Box>
         </Flex>
       </Flex>
+
+      <Box my="3">
+        <Text fontWeight="bold" mb="2">
+          Possuia esse ativo na declaração de 2020?{" "}
+          <Switch
+            ml="4"
+            onChange={() => {
+              toggleHadInPreviousYear();
+            }}
+            isChecked={hadInPreviousYear}
+          />
+        </Text>
+        {hadInPreviousYear && (
+          <form onSubmit={handleSubmit}>
+            <Flex justifyContent="space-between" alignItems="end" w="full">
+              <Flex flexBasis="50%" direction="column">
+                <Text>Preço Médio Declarado</Text>
+                <MoneyInput
+                  placeholder="1234.56"
+                  value={previousYear.price}
+                  setValue={(newValue) =>
+                    setPreviousYear((prev) => ({ ...prev, price: newValue }))
+                  }
+                />
+              </Flex>
+              <Flex flexBasis="30%" direction="column">
+                <Text>Qnt. Declarada</Text>
+                <NumberInput
+                  placeholder="Ex: 100"
+                  onChange={(newValue) =>
+                    setPreviousYear((prev) => ({ ...prev, quantity: newValue }))
+                  }
+                  value={previousYear.quantity}
+                >
+                  <NumberInputField />
+                </NumberInput>
+              </Flex>
+              <Flex alignItems="end">
+                <Button type="submit">Salvar</Button>
+              </Flex>
+            </Flex>
+          </form>
+        )}
+      </Box>
+
       <Discriminator stock={stock} />
 
-      <Text fontWeight="bold" mt="4" mb="2">
-        Valores no início e fim do ano
-      </Text>
-      <Flex justifyContent="space-between" alignItems="center" w="full">
-        <Flex alignItems="center" flexBasis="50%">
-          <MoneyInput value={startValue} setValue={setStartValue} />
-          <CopyToClipboard text={startValue.toString()} />
+      <Box mt="4">
+        <Flex justifyContent="space-between" alignItems="center" w="full">
+          <Flex alignItems="center" flexBasis="50%" direction="column">
+            <Text>Situação em 31/12/2020</Text>
+            <Box>
+              <Text as="span" fontWeight="bold">
+                {previousYearValueFormatted}
+              </Text>
+              <CopyToClipboard text={previousYear?.price?.toString()} />
+            </Box>
+          </Flex>
+          <Flex flexBasis="50%" alignItems="center" direction="column">
+            <Text>Situação em 31/12/2021</Text>
+            <Box>
+              <Text as="span" fontWeight="bold">
+                {endValueFormatted}
+              </Text>
+              <CopyToClipboard text={stock?.TotalPrice?.toString()} />
+            </Box>
+          </Flex>
         </Flex>
-        <Flex flexBasis="50%" justifyContent="end" alignItems="center">
-          {endValueFormatted}
-          <CopyToClipboard text={endValue.toString()} />
-        </Flex>
-      </Flex>
+      </Box>
 
       <TransactionList stock={stock} />
     </Flex>
   );
 };
 
+interface PreviousYearData {
+  quantity: number;
+  price: number;
+  ticker: string;
+}
+
+type PreviousYearDataMap = Record<string, PreviousYearData>;
+type UpdatePreviousYearDataMap = (data: Partial<PreviousYearData>) => void;
+const useManagePreviousYearValues = () => {
+  const [previousYearDataMap, setPreviousYearDataMap] = useState<
+    Record<string, PreviousYearData>
+  >({});
+
+  const updatePreviousYearDataMap = (data: Partial<PreviousYearData>) => {
+    if (data?.price === 0 && !previousYearDataMap?.[data.ticker].price) {
+      return;
+    }
+
+    setPreviousYearDataMap((prev) => ({
+      ...prev,
+      [data.ticker]: {
+        ticker: data.ticker,
+        ...prev[data.ticker],
+        ...data,
+      },
+    }));
+  };
+
+  return {
+    previousYearDataMap,
+    updatePreviousYearDataMap,
+  };
+};
+
 export default function Home() {
   const [file, setFile] = useState<File>(null);
   const [data, setData] = useState<OriginalData>();
+  const [stocks, setStocks] = useState<Stock[]>([]);
 
-  const stocks = useMemo(() => {
-    if (!data) return [];
-    console.log(processTransactions(data));
-    return getAllStocks(processTransactions(data));
-  }, [data]);
+  const { previousYearDataMap, updatePreviousYearDataMap } =
+    useManagePreviousYearValues();
+
+  console.log("previousYearDataMap", previousYearDataMap);
 
   useEffect(() => {
     if (file) {
@@ -507,6 +722,24 @@ export default function Home() {
       });
     }
   }, [file]);
+
+  useEffect(() => {
+    if (!data) setStocks([]);
+    else {
+      // console.log(
+      //   getAllStocks({
+      //     transactions: processTransactions(data),
+      //     previousYearDataMap,
+      //   })
+      // );
+      setStocks(
+        getAllStocks({
+          transactions: processTransactions(data),
+          previousYearDataMap,
+        })
+      );
+    }
+  }, [data, previousYearDataMap]);
 
   return (
     <Flex flex="1" direction="column" alignItems="center" w="full">
@@ -548,7 +781,11 @@ export default function Home() {
           {stocks.map((stock) => {
             return (
               <React.Fragment key={`stock-${stock.Ticker}`}>
-                <StockItem stock={stock} />
+                <StockItem
+                  stock={stock}
+                  previousYearDataMap={previousYearDataMap}
+                  updatePreviousYearDataMap={updatePreviousYearDataMap}
+                />
                 <Box mb="16" />
               </React.Fragment>
             );
