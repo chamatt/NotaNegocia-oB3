@@ -125,24 +125,35 @@ const getAveragePurchagePrice = memoize(
     return (sumPrice / sumQuantity).toFixed(2);
   }
 );
-const getTotalStockValue = memoize((transactions: Transaction[]) => {
+
+const getTotalStockQuantity = memoize((transactions: Transaction[]) => {
   const purchases = transactions.filter(
     (transaction) => transaction.Type === TransactionType.Buy
   );
   const sales = transactions.filter(
     (transaction) => transaction.Type === TransactionType.Sell
   );
-
-  const totalPurchasePrice = purchases.reduce(
-    (acc, transaction) => acc + transaction.Value,
+  const totalPurchaseQuantity = purchases.reduce(
+    (acc, transaction) => acc + transaction.Quantity,
     0
   );
-  const totalSalePrice = sales.reduce(
-    (acc, transaction) => acc + transaction.Value,
+  const totalSaleQuantity = sales.reduce(
+    (acc, transaction) => acc + transaction.Quantity,
     0
   );
 
-  return (totalPurchasePrice - totalSalePrice).toFixed(2);
+  const totalQuantity = totalPurchaseQuantity - totalSaleQuantity;
+  return totalQuantity;
+});
+
+const getTotalStockValue = memoize((transactions: Transaction[]) => {
+  const purchases = transactions.filter(
+    (transaction) => transaction.Type === TransactionType.Buy
+  );
+  const totalQuantity = getTotalStockQuantity(transactions);
+  const averagePurchagePrice = getAveragePurchagePrice(purchases);
+
+  return (parseFloat(averagePurchagePrice) * totalQuantity).toFixed(2);
 });
 
 const createStock = memoize(
@@ -151,10 +162,7 @@ const createStock = memoize(
     transactions: Transaction[],
     previousYearData: PreviousYearData
   ): Stock => {
-    const totalQuantity = transactions.reduce(
-      (acc, transaction) => acc + transaction.Quantity,
-      0
-    );
+    const totalQuantity = getTotalStockQuantity(transactions);
 
     const transactionFromPreviousData =
       previousYearData &&
@@ -165,17 +173,14 @@ const createStock = memoize(
         Type: TransactionType.Buy,
       } as Transaction);
 
-    const allTransactions = [
-      ...transactions,
-      transactionFromPreviousData,
-    ].filter(Boolean);
+    const allTransactions = [...transactions, transactionFromPreviousData]
+      .filter(Boolean)
+      .filter((transaction) => {
+        return transaction.Quantity > 0;
+      });
 
     let averagePurchagePrice = getAveragePurchagePrice(allTransactions);
-    let totalPrice = getTotalStockValue(
-      allTransactions.filter((transaction) => {
-        return transaction.Quantity > 0;
-      })
-    );
+    let totalPrice = getTotalStockValue(allTransactions);
 
     return {
       Ticker: ticker,
@@ -184,9 +189,6 @@ const createStock = memoize(
       Quantity: totalQuantity + (transactionFromPreviousData?.Quantity || 0),
       AveragePurchagePrice: averagePurchagePrice,
       TotalPrice: totalPrice,
-      // AveragePurchagePrice: "0",
-      // TotalPrice: "0",
-      // PreviousYearData: previousYearData,
     };
   }
 );
@@ -551,7 +553,15 @@ const StockItem = ({
   }, [previousYearDataMap?.[stock.Ticker], hadInPreviousYear]);
 
   return (
-    <Flex bg={bgColor} width="full" p="8" direction="column">
+    <Flex
+      bg={bgColor}
+      width="full"
+      p="8"
+      direction="column"
+      style={{
+        opacity: stock.Quantity > 0 || hadInPreviousYear ? 1 : 0.5,
+      }}
+    >
       <Flex flex="1" mb="2" flexWrap="wrap">
         <Flex direction="column" alignContent="center" flex="1">
           <Box>
