@@ -137,16 +137,10 @@ const getTotalStockValue = memoize((transactions: Transaction[]) => {
     (acc, transaction) => acc + transaction.Value,
     0
   );
-  console.log("purchases", purchases, totalPurchasePrice);
   const totalSalePrice = sales.reduce(
     (acc, transaction) => acc + transaction.Value,
     0
   );
-
-  // console.log({
-  //   totalPurchasePrice,
-  //   totalSalePrice,
-  // });
 
   return (totalPurchasePrice - totalSalePrice).toFixed(2);
 });
@@ -170,8 +164,6 @@ const createStock = memoize(
         Quantity: previousYearData.quantity || 0,
         Type: TransactionType.Buy,
       } as Transaction);
-
-    console.log("buceta", previousYearData, transactionFromPreviousData);
 
     const allTransactions = [
       ...transactions,
@@ -236,9 +228,7 @@ const getAllStocks = ({
   previousYearDataMap: Record<string, PreviousYearData>;
 }): Stock[] => {
   const groupedByTicker = groupBy(transactions, TransactionProperties.Ticker);
-  // console.log("groupedByTicker", groupedByTicker);
   const stocks = mapValues(groupedByTicker, (value, key) => {
-    // console.log("key", key, "value", value);
     return createStock(key, value, previousYearDataMap?.[key]);
   });
   return Object.values(stocks);
@@ -247,7 +237,6 @@ const getAllStocks = ({
 const processFileUpload = async (file: File): Promise<OriginalData | null> => {
   const data = await file.arrayBuffer();
   const workbook = read(data);
-  // console.log(workbook);
   try {
     return utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
   } catch (err) {
@@ -536,7 +525,6 @@ const StockItem = ({
       price: parseFloat(previousYear.price) || 0,
       quantity: parseFloat(previousYear.quantity) || 0,
     };
-    // console.log("xixixi", value);
     updatePreviousYearDataMap(value);
     toast({
       title: "Ativo recalculado com sucesso!",
@@ -713,8 +701,6 @@ export default function Home() {
   const { previousYearDataMap, updatePreviousYearDataMap } =
     useManagePreviousYearValues();
 
-  console.log("previousYearDataMap", previousYearDataMap);
-
   useEffect(() => {
     if (file) {
       processFileUpload(file).then((data) => {
@@ -726,12 +712,6 @@ export default function Home() {
   useEffect(() => {
     if (!data) setStocks([]);
     else {
-      // console.log(
-      //   getAllStocks({
-      //     transactions: processTransactions(data),
-      //     previousYearDataMap,
-      //   })
-      // );
       setStocks(
         getAllStocks({
           transactions: processTransactions(data),
